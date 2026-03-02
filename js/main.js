@@ -45,6 +45,8 @@ function updateDT(data) {
   for (let fork of data) {
     fork.repoLink = `<a href="https://github.com/${fork.full_name}">Link</a>`;
     fork.ownerName = `<img src="${fork.owner.avatar_url || 'https://avatars.githubusercontent.com/u/0?v=4'}&s=48" width="24" height="24" class="me-2 rounded-circle" />${fork.owner ? fork.owner.login : '<strike><em>Unknown</em></strike>'}`;
+    fork.aheadBtn = `<button class="btn btn-sm btn-outline-success fetch-ahead py-0" data-fork="${fork.full_name}" data-fork-branch="${fork.default_branch}" aria-label="Fetch commits ahead for ${fork.full_name}">↑ Ahead</button>`;
+    fork.behindBtn = `<button class="btn btn-sm btn-outline-warning fetch-behind py-0" data-fork="${fork.full_name}" data-fork-branch="${fork.default_branch}" aria-label="Fetch commits behind for ${fork.full_name}">↓ Behind</button>`;
     forks.push(fork);
   }
   const dataSet = forks.map(fork =>
@@ -93,6 +95,8 @@ function initDT() {
     ['Open Issues', 'open_issues_count'],
     ['Size', 'size'],
     ['Last Push', 'pushed_at'],
+    ['Ahead', 'aheadBtn'],
+    ['Behind', 'behindBtn'],
   ];
 
   // Sort by stars:
@@ -127,6 +131,40 @@ function initDT() {
   new $.fn.dataTable.SearchBuilder(table, {});
   table.searchBuilder.container().prependTo(table.table().container());
   makeTableKeyboardScrollable();
+
+  $('#forkTable').on('click', '.fetch-ahead, .fetch-behind', function () {
+    const $btn = $(this);
+    const forkFullName = $btn.data('fork');
+    const forkBranch = $btn.data('fork-branch');
+    const isAhead = $btn.hasClass('fetch-ahead');
+    const colKey = isAhead ? 'aheadBtn' : 'behindBtn';
+    const colIdx = window.columnNamesMap.map(c => c[1]).indexOf(colKey);
+
+    $btn.prop('disabled', true).html('<i class="fa fa-spinner fa-pulse fa-fw" aria-hidden="true"></i>');
+
+    const forkOwner = forkFullName.split('/')[0];
+    fetch(`https://api.github.com/repos/${window.currentRepo}/compare/${window.parentDefaultBranch}...${forkOwner}:${forkBranch}`)
+      .then(r => {
+        if (!r.ok) throw Error(r.statusText);
+        return r.json();
+      })
+      .then(data => {
+        const count = isAhead ? data.ahead_by : data.behind_by;
+        const badgeClass = isAhead ? 'bg-success' : 'bg-warning text-dark';
+        const arrow = isAhead ? '↑' : '↓';
+        const newHtml = `<span class="badge ${badgeClass}">${arrow} ${count}</span>`;
+        window.forkTable.rows().every(function () {
+          const rowData = this.data();
+          if (rowData[0] && rowData[0].indexOf(`href="https://github.com/${forkFullName}"`) > -1) {
+            window.forkTable.cell(this.index(), colIdx).data(newHtml).draw(false);
+            return false;
+          }
+        });
+      })
+      .catch(() => {
+        $btn.prop('disabled', false).html(isAhead ? '↑ Ahead' : '↓ Behind');
+      });
+  });
 }
 
 function fetchAndShow(repo) {
@@ -138,15 +176,21 @@ function fetchAndShow(repo) {
   repo = repo.replace(/^\/+/, ''); // remove leading slashes
   repo = repo.replace(/\/+$/, ''); // remove trailing slashes
 
-  fetch(
-    `https://api.github.com/repos/${repo}/forks?sort=stargazers&per_page=100`
-  )
-    .then(response => {
-      if (!response.ok) throw Error(response.statusText);
-      return response.json();
-    })
-    .then(data => {
-      updateDT(data);
+  window.currentRepo = repo;
+
+  Promise.all([
+    fetch(`https://api.github.com/repos/${repo}`).then(r => {
+      if (!r.ok) throw Error(r.statusText);
+      return r.json();
+    }),
+    fetch(`https://api.github.com/repos/${repo}/forks?sort=stargazers&per_page=100`).then(r => {
+      if (!r.ok) throw Error(r.statusText);
+      return r.json();
+    }),
+  ])
+    .then(([repoData, forksData]) => {
+      window.parentDefaultBranch = repoData.default_branch;
+      updateDT(forksData);
     })
     .catch(error => {
       const msg =
