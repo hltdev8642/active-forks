@@ -1,0 +1,26 @@
+{
+  "name": "active-forks",
+  "version": "1.0.0",
+  "description": "Find actively developed forks of a GitHub repository",
+  "main": "electron-main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder --win --x64"
+  },
+  "devDependencies": {
+    "electron": "latest",
+    "electron-builder": "latest"
+  },
+  "build": {
+    "appId": "com.activeforks.app",
+    "productName": "Active Forks",
+    "win": {
+      "target": "nsis"
+    },
+    "files": [
+      "**/*",
+      "!node_modules/.bin",
+      "!*.md"
+    ]
+  }
+}
